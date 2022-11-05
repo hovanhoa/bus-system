@@ -1,0 +1,241 @@
+﻿-- 2.1.1 TRIGGER 1
+/* Trigger 1.1 - Kiểm tra thông tin vé tháng */ 
+-- drop trigger if exists bf_insert_hdvt ;
+DELIMITER $$
+create trigger bf_insert_hdvt 
+	before insert 
+	on Hoat_dong_ve_thang for each row
+BEGIN
+    -- statements
+    DECLARE Mave char(15);
+    declare custom_message varchar(256);
+    set Mave = new.Ma_ve;
+    if (new.Tram_len not in (select Ma_ga_tram_1 from Ve_thang where Ma_ve=Mave)
+		or new.Tram_xuong not in (select Ma_ga_tram_2 from Ve_thang where Ma_ve=Mave))	
+        and (new.Tram_len not in (select Ma_ga_tram_2 from Ve_thang where Ma_ve=Mave)
+		or new.Tram_xuong not in (select Ma_ga_tram_1 from Ve_thang where Ma_ve=Mave))
+		then 
+			 set custom_message= "Ma tram len/xong khong trung voi thong tin trong ve thang";
+             signal sqlstate '13500'
+             set message_text= custom_message;
+	END IF;
+END$$
+//
+delimiter ; 
+
+-- drop trigger if exists bf_update_hdvt ;
+DELIMITER $$
+create trigger bf_update_hdvt 
+	before update 
+	on Hoat_dong_ve_thang for each row
+BEGIN
+    -- statements
+    DECLARE Mave char(15);
+    declare custom_message varchar(256);
+    set Mave = new.Ma_ve;
+    if (new.Tram_len not in (select Ma_ga_tram_1 from Ve_thang where Ma_ve=Mave)
+		or new.Tram_xuong not in (select Ma_ga_tram_2 from Ve_thang where Ma_ve=Mave))	
+        and (new.Tram_len not in (select Ma_ga_tram_2 from Ve_thang where Ma_ve=Mave)
+		or new.Tram_xuong not in (select Ma_ga_tram_1 from Ve_thang where Ma_ve=Mave))
+		then 
+			 set custom_message= "Ma tram len/xuong khong trung voi thong tin trong ve thang";
+             signal sqlstate '13500'
+             set message_text= custom_message;
+	END IF;
+END$$
+//
+delimiter ; 
+
+-- 2.1.2 TRIGGER 2
+/* Trigger 1.2 - Tự động cập nhật giá vé khi insert vào bảng vé */
+-- DROP TRIGGER if exists Auto_Insert_gia_ve_le;
+DELIMITER $$
+CREATE TRIGGER Auto_Insert_gia_ve_le  Before INSERT ON ve_le
+FOR EACH ROW
+BEGIN
+	declare sochuyen1 int;
+    declare sochuyen2 int;
+    declare gia int;
+		begin
+			SELECT stt_ INTO sochuyen1 FROM ghe, ve WHERE(ghe.Ma_tuyen = new.Ma_tuyen AND new.Ma_ve = ve.Ma_ve AND ghe.Ma_ga_tram = new.Ma_ga_tram_len);
+            SELECT stt_ INTO sochuyen2 FROM ghe, ve WHERE(ghe.Ma_tuyen = new.Ma_tuyen AND new.Ma_ve = ve.Ma_ve AND ghe.Ma_ga_tram = new.Ma_ga_tram_xuong);
+				if(new.Ma_tuyen like 'B%') then SELECT don_gia_xe_bus INTO gia FROM Bang_gia;
+				else SELECT don_gia INTO gia FROM Tuyen_tau_dien WHERE(Ma_tuyen_tau_xe = new.Ma_tuyen);
+				end if;
+            SET gia = gia * CEIL(ABS(sochuyen1 - sochuyen2)/2);
+        end;
+    Update ve set gia_ve = gia where new.Ma_ve = ve.Ma_ve;
+END;
+$$
+//
+delimiter ; 
+
+-- DROP TRIGGER if exists Auto_Insert_gia_ve_1_ngay;
+DELIMITER $$
+CREATE TRIGGER Auto_Insert_gia_ve_1_ngay  Before INSERT ON Ve_1_ngay
+FOR EACH ROW
+BEGIN
+    declare gia int;
+		begin
+            if(WEEKDAY(new.Ngay_su_dung) < 5)	
+				then SELECT gia_ve_1_ngay_trong_tuan into gia from Bang_gia;
+			else
+				SELECT gia_ve_1_ngay_cuoi_tuan into gia from Bang_gia;
+			end if;
+        end;
+    Update ve set gia_ve = gia where new.Ma_ve = ve.Ma_ve;
+END;
+$$
+//
+delimiter ; 
+
+	-- DROP TRIGGER if exists Auto_Insert_gia_ve_thang;
+	DELIMITER $$
+	CREATE TRIGGER Auto_Insert_gia_ve_thang  Before INSERT ON Ve_thang
+	FOR EACH ROW
+	BEGIN
+		declare sochuyen1 int;
+		declare sochuyen2 int;
+		declare giamgia float(2) default 1.00;
+		declare nghenghiep varchar(30);
+		declare num int default 0;
+		declare NgaySuDung DATE;
+		declare gia int;
+			begin
+				SELECT stt_ INTO sochuyen1 FROM ghe, ve WHERE(ghe.Ma_tuyen = new.ma_tuyen AND ghe.Ma_ga_tram = new.Ma_ga_tram_1 AND ve.Ma_ve = new.Ma_ve);
+				SELECT stt_ INTO sochuyen2 FROM ghe, ve WHERE(ghe.Ma_tuyen = new.ma_tuyen AND ghe.Ma_ga_tram = new.Ma_ga_tram_2 AND ve.Ma_ve = new.Ma_ve);
+					if(new.ma_tuyen like 'B%') then SELECT don_gia_xe_bus INTO gia FROM Bang_gia;
+					else SELECT don_gia INTO gia FROM Tuyen_tau_dien WHERE(Ma_tuyen_tau_xe = new.ma_tuyen);
+					end if;
+				SELECT COUNT(*) INTO num FROM Ve_thang, Khach_hang, ve WHERE(Khach_hang.Ma_khach_hang = ve.Ma_khach_hang AND Ve_thang.Ma_tuyen = new.Ma_tuyen AND Ve_thang.Ma_ga_tram_1 = new.Ma_ga_tram_1 AND Ve_thang.Ma_ga_tram_2 = new.Ma_ga_tram_2 and ve.ma_ve = ve_thang.ma_ve
+					and (DATE_ADD(ve.ngay_gio_mua, INTERVAL 30 day) >= Ve.ngay_gio_mua) ); 
+					if(num > 0) then SET giamgia = giamgia - 0.1;
+					end if;
+				SELECT Nghe_nghiep INTO nghenghiep FROM Khach_hang, ve WHERE(Khach_hang.Ma_khach_hang = ve.Ma_khach_hang and ve.ma_ve = new.ma_ve);
+					if(nghenghiep = 'Student') then SET giamgia = giamgia - 0.5;
+					end if;
+				SET gia = 20 * 2 * gia * giamgia * CEIL(ABS(sochuyen1 - sochuyen2)/2);
+			end;
+		Update ve set gia_ve = gia where new.Ma_ve = ve.Ma_ve;
+	END;
+	$$
+	//
+	delimiter ; 
+
+-- 2.2.1 PROCEDURE 1
+/* PROCEDURE 2.1  -  Lộ trình tuyến tàu xe theo thứ tự */
+-- DROP procedure if exists LoTrinhTuyenXeTau;
+DELIMITER $$
+CREATE  PROCEDURE LoTrinhTuyenXeTau(IN ma char(4))
+BEGIN
+    SELECT Ga_tram.Ten FROM Ga_tram, Ghe
+    WHERE (ma = Ghe.Ma_tuyen and Ghe.Ma_ga_tram = Ga_tram.Ma_ga_tram)
+    order by Ghe.stt_;
+
+END$$
+DELIMITER ;
+
+-- 2.2.2 PROCEDURE 2
+/* PROCEDURE 2.2  -  Thống kê tổng số lượt người di chuyển trên 1 chuyến tàu xe trong 1 khoảng thời gian */
+-- DROP procedure if exists ThongKeLuotNguoi;
+DELIMITER $$
+CREATE  PROCEDURE ThongKeLuotNguoi(IN ma char(4), IN tu_ngay date, In toi_ngay date)
+BEGIN
+	DECLARE countday  INT;
+    drop table if exists thong_ke;
+    CREATE TABLE thong_ke(
+		ngay date PRIMARY KEY,
+		tong_so_luot int
+	);
+    SET countday = 0;
+    
+    loop_label:  LOOP
+		IF  DATE_ADD(tu_ngay , INTERVAL countday day) >  toi_ngay THEN 
+			LEAVE  loop_label;
+		ELSE 
+			Insert into thong_ke values (DATE_ADD(tu_ngay , INTERVAL countday day), 
+            (select count(*) from ve_le where Ngay_su_dung = (DATE_ADD(tu_ngay , INTERVAL countday day)) and ma = ve_le.ma_tuyen) + 
+            (select count(*) from Hoat_dong_ve_thang, ve_thang where Ngay_su_dung = (DATE_ADD(tu_ngay , INTERVAL countday day)) and ma = ve_thang.ma_tuyen and ve_thang.ma_ve = Hoat_dong_ve_thang.ma_ve) + 
+            (select count(*) from Ve_1_ngay, hoat_dong_ve_1_ngay where Ngay_su_dung = (DATE_ADD(tu_ngay , INTERVAL countday day)) and Ve_1_ngay.ma_ve = hoat_dong_ve_1_ngay.ma_ve and hoat_dong_ve_1_ngay.ma_tuyen = ma) 
+            );
+            set countday = countday + 1;
+		END  IF; 
+		
+	END LOOP;
+    select * from thong_ke;
+
+END$$
+DELIMITER ;
+
+-- Test TRIGGER 1
+
+insert into Giao_Lo values (null,'40°24\'12,2\"N', '21°10\'26,5\"E');
+insert into Giao_Lo values (null,'40°24\'12,2\"N', '21°10\'26,5\"E');
+insert into Giao_Lo values (null,'40°24\'12,2\"N', '21°10\'26,5\"E');
+insert into Giao_Lo values (null,'40°24\'12,2\"N', '21°10\'26,5\"E');
+
+insert into Con_duong(Ten_duong) values ('Nguyen Du'), ('Nguyen Khuyen'),('Tran Quoc Toan');
+
+insert into Doan_duong values ('GL1', 'GL2', 1, 'CD1', 1);
+insert into Doan_duong values ('GL3', 'GL4', 3, 'CD3', 3);
+
+insert into Tuyen_tau_xe values ('B001');
+
+insert into Tuyen_xe_bus values (NULL,'B001');
+
+insert into Chuyen_tau_xe values ('B001', 1);
+
+Insert into Ga_tram values ('BT00001', 'q1', 'a', 0, 'GL1', 'GL2');
+Insert into Ga_tram values ('BT00003', 'q3', 'c', 0, 'GL3', 'GL4');
+
+insert into Ghe values ('B001', 1, 'BT00001', 1, '08:00', '08:03'); 
+insert into Ghe values ('B001', 1, 'BT00003', 3, '09:00', '09:03'); 
+
+insert into Khach_hang values ('KH000001', '123456789', 'CEO', '0932157541', 'M', 'hoa.ho.van@hcmut.edu.vn', '1990:04:21');
+
+insert into bang_gia values (3000, 4000, 5000);
+
+call insertVeThang (null, '2021-01-23 12:45:56', 'KH000001', 
+		'B001', 'BT00001', 'BT00003');
+
+insert into hoat_dong_ve_thang 
+values 	('VM1906202100001','2021-05-23','14:00:00','15:01:01','BT00001', 'BT00003');
+select * from hoat_dong_ve_thang;
+
+-- Test TRIGGER 2
+
+select * from ve;
+
+-- Test PROCEDURE 1
+
+call LoTrinhTuyenXeTau('B001');
+
+-- Test PROCEDURE 2
+
+call ThongKeLuotNguoi('B001', '2021-05-20', ' 2021-06-20');
+
+
+SET FOREIGN_KEY_CHECKS = 0; 
+TRUNCATE TABLE bang_gia;
+TRUNCATE TABLE ve_le;
+TRUNCATE TABLE hoat_dong_ve_thang;
+TRUNCATE TABLE Ve_thang;
+TRUNCATE TABLE hoat_dong_ve_1_ngay;
+TRUNCATE TABLE ve_1_ngay;
+TRUNCATE TABLE khach_hang;
+TRUNCATE TABLE Ghe;
+TRUNCATE TABLE ga_tram;
+TRUNCATE TABLE chuyen_tau_xe;
+TRUNCATE TABLE tuyen_tau_dien;
+TRUNCATE TABLE tuyen_xe_bus;
+TRUNCATE TABLE tuyen_tau_xe;
+TRUNCATE TABLE doan_duong;
+TRUNCATE TABLE con_duong;
+TRUNCATE TABLE giao_lo;
+
+SET FOREIGN_KEY_CHECKS = 1;
+SELECT * from Ve_thang;
+
+
+
+-- Luu y: - Script được yêu cầu sao cho có thể chạy trong một lần từ đầu đến cuối.
